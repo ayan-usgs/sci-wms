@@ -293,7 +293,7 @@ class SGridDataset(Dataset, NetCDFDataset):
                                                        time_index=time_index,
                                                        vectorstep=vectorstep
                                                        )
-                        raw_data = self._avg_to_cell_center(raw_data, data_obj.center_axis, vectorstep)
+                        raw_data = avg_to_cell_center(raw_data, data_obj.center_axis)[::vectorstep, ::vectorstep]
                         if x_var is None:
                             if data_obj.vector_axis and data_obj.vector_axis.lower() == 'x':
                                 x_var = raw_data
@@ -459,33 +459,6 @@ class SGridDataset(Dataset, NetCDFDataset):
         data_subset = data[rows, columns]
         return data_subset
     
-    def _avg_to_cell_center(self, data_array, avg_dim, vectorstep):
-        """
-        Given a two-dimensional numpy.array, average
-        adjacent row values (avg_dim=1) or adjacent
-        column values (avg_dim=0) to the grid cell
-        center.
-        
-        :param data_array: 2-dimensional data
-        :type data_array: numpy.array
-        :param int avg_dim: integer specify array axis to be averaged
-        :return: averages
-        :rtype: numpy.array
-        
-        """
-        if avg_dim == 0:
-            da = np.transpose(data_array)
-        else:
-            da = data_array
-        da_trim_low = da[:, 1:][::vectorstep, ::vectorstep]
-        da_trim_high = da[:, :-1][::vectorstep, ::vectorstep]
-        da_avg_raw = 0.5 * (da_trim_low + da_trim_high)
-        if avg_dim == 0:
-            da_avg = np.transpose(da_avg_raw)
-        else:
-            da_avg = da_avg_raw
-        return da_avg
-    
     def _vector_spatial_subset_adjustment(self, subset_x, subset_y, sg_variable, vectorstep=1):
         """
         Vectors are on the edges rather then face centers.
@@ -500,9 +473,8 @@ class SGridDataset(Dataset, NetCDFDataset):
         subset_x, subset_y = self._adjust_subsets_for_slicing(subset_x, subset_y, sg_variable)
         # make sure there are enough values to do vector averaging correctly
         # expand the indices to cover large vector step
-        # handle variables defined on the "x-axis"
-        x_axis_def = ('x', 1)  # how "x" directed vectors can be identified
-        y_axis_def = ('y', 0)  # how "y" directed vectors can be identified
+        x_axis_def = ('x', 1)  # how "x" directed vectors can be identified; explicitly with 'x' or number representing that values are next to each other in a row when averaging
+        y_axis_def = ('y', 0)  # how "y" directed vectors can be identified; explicitly with 'y' or number representing that values are above/below each other in a column when averaging
         # handle variables defined on the "x-axis"
         new_subset_y = self._expand_vector_indices(subset_y, sg_variable, vectorstep, x_axis_def)
         # handle variables defined on the "y-axis"
@@ -547,8 +519,8 @@ class SGridDataset(Dataset, NetCDFDataset):
     def _expand_vector_indices(self, indices_subset, sg_variable, vectorstep, axis_def):
         axis, center_axis = axis_def
         subset_max = indices_subset.max()
-        if ((sg_variable.vector_axis and sg_variable.vector_axis.lower() == axis) or
-            (sg_variable.center_axis == center_axis)
+        if ((sg_variable.vector_axis and sg_variable.vector_axis.lower() == axis) or  # if vector axis is unavailable, try averaging axis instead
+            (sg_variable.center_axis == center_axis)  # not the most reliable way to do this; do it if better option is unavailable
             ):
             new_indices_subset = np.append(indices_subset, np.array(subset_max + 1, subset_max + 1*vectorstep))
         else:
